@@ -16,16 +16,30 @@ namespace SharpChannel
     public delegate void OnPostDeleted(Post post);
     public delegate void OnThreadDeleted(Thread thread);
 
+    [Serializable]
     public class Thread
     {
+        [field: NonSerialized]
         public event OnNewPost NewPost;
+        [field: NonSerialized]
         public event OnPostDeleted PostDeleted;
+        [field: NonSerialized]
         public event OnThreadDeleted ThreadDeleted;
 
         public int ID { get; internal set; }
         public List<Post> Posts { get; internal set; }
         public Board Parent { get; internal set; }
         public bool Alive { get; internal set; }
+
+        public IEndpointProvider EndpointProvider = EndpointManager.DefaultProvider;
+
+        public Post OP
+        {
+            get
+            {
+                return Posts[0];
+            }
+        }
 
         public Thread(int id, Board board)
         {
@@ -39,7 +53,12 @@ namespace SharpChannel
 
         public void Update()
         {
-            string raw = Utilities.Download(string.Format("http://a.4cdn.org/{0}/thread/{1}.json", Parent.Name, ID));
+            string thread_url = EndpointProvider.GetThreadEndpoint(Parent.Name, ID);
+
+            if (thread_url == "")
+                return;
+
+            string raw = Utilities.Download(thread_url);
 
             if (raw == "-")
             {
@@ -91,6 +110,10 @@ namespace SharpChannel
                 PostDeleted(post);
 
             post.Removal();
+        }
+
+        public class Sleep
+        {
         }
     }
 }

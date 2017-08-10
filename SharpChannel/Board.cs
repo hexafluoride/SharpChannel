@@ -17,8 +17,16 @@ namespace SharpChannel
     public delegate void OnNewThread(Thread thread);
     public delegate void OnUpdateFinished(Board board);
 
+    [Serializable]
     public class Board
     {
+        #region boards
+        public static List<string> Boards = new List<string>()
+        {
+            "a","b","c","d","e","f","g","gif","h","hr","k","m","o","p","r","s","t","u","v","vg","vr","w","wg","i","ic","r9k","s4s","cm","hm","lgbt","y","3","aco","adv","an","asp","biz","cgl","ck","co","diy","fa","fit","gd","hc","his","int","jp","lit","mlp","mu","n","news","out","po","pol","sci","soc","sp","tg","toy","trv","tv","vp","wsg","wsr","x"
+        };
+        #endregion
+
         public string Name { get; internal set; }
         public List<Thread> Threads { get; internal set; }
         public int AutoUpdateInterval
@@ -33,24 +41,49 @@ namespace SharpChannel
             }
         }
 
+        [NonSerialized]
         private ManualResetEvent _running = new ManualResetEvent(false);
+        [NonSerialized]
+        private ManualResetEvent _updated = new ManualResetEvent(false);
+        public bool Updating { get; set; }
         private int _sleep = 5000;
 
+        [field: NonSerialized]
         public event OnUpdateFinished UpdateFinished;
+        [field: NonSerialized]
         public event OnNewThread NewThread;
+        [field: NonSerialized]
         public event OnThreadDeleted ThreadDeleted;
 
-        public Board(string board)
+        public IEndpointProvider EndpointProvider = EndpointManager.DefaultProvider;
+
+        public Board(string board, bool auto_update = true)
         {
             Name = board;
             Threads = new List<Thread>();
+
+            if(auto_update)
+                Task.Factory.StartNew(AutoUpdateLoop);
+        }
+
+        public void Init()
+        {
+            _running = new ManualResetEvent(false);
 
             Task.Factory.StartNew(AutoUpdateLoop);
         }
 
         public void Update()
         {
-            string json = Utilities.Download(string.Format("http://a.4cdn.org/{0}/threads.json", Name));
+            _updated.Reset();
+            Updating = true;
+            Console.WriteLine("Started update on board /{0}/", Name);
+            string board_url = EndpointProvider.GetBoardEndpoint(Name);
+
+            if (board_url == "")
+                return;
+
+            string json = Utilities.Download(board_url);
 
             if (json == "-")
                 return;
@@ -90,10 +123,15 @@ namespace SharpChannel
 
             if (UpdateFinished != null)
                 UpdateFinished(this);
+
+            Updating = false;
+            _updated.Set();
+            Console.WriteLine("Ended update on board /{0}/", Name);
         }
 
         public void StartAutoUpdate()
         {
+            Console.WriteLine("Starting auto-update...");
             _running.Set();
         }
 
@@ -102,7 +140,12 @@ namespace SharpChannel
             _running.Reset();
         }
 
-        private void AutoUpdateLoop()
+        public bool WaitUntilUpdated(int length)
+        {
+            return _updated.WaitOne(length);
+        }
+
+        public void AutoUpdateLoop()
         {
             while(true)
             {
@@ -110,8 +153,15 @@ namespace SharpChannel
 
                 while(_running.WaitOne(0))
                 {
+                    long epoch = (long)(DateTime.Now - new DateTime(1970, 1, 1)).TotalMilliseconds;
+                    long epoch_excess = epoch % _sleep;
+                    int wait = (int)(_sleep - epoch_excess);
+
+                    Console.Write("Next auto-update for board /{0}/ is due in {1} milliseconds({2}): ", Name, wait, DateTime.Now.AddMilliseconds(wait));
+                    Console.WriteLine("epoch: {0}, epoch_excess: {1}, wait: {2}", epoch, epoch_excess, wait);
+
+                    System.Threading.Thread.Sleep(wait);
                     Update();
-                    System.Threading.Thread.Sleep(_sleep);
                 }
             }
         }

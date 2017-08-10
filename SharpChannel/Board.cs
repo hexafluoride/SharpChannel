@@ -46,7 +46,7 @@ namespace SharpChannel
         [NonSerialized]
         private ManualResetEvent _updated = new ManualResetEvent(false);
         public bool Updating { get; set; }
-        private int _sleep = 5000;
+        private int _sleep = 10000;
 
         [field: NonSerialized]
         public event OnUpdateFinished UpdateFinished;
@@ -54,6 +54,8 @@ namespace SharpChannel
         public event OnNewThread NewThread;
         [field: NonSerialized]
         public event OnThreadDeleted ThreadDeleted;
+        
+        public SemaphoreSlim updating_threads = new SemaphoreSlim(3, 3);
 
         public IEndpointProvider EndpointProvider = EndpointManager.DefaultProvider;
 
@@ -77,7 +79,9 @@ namespace SharpChannel
         {
             _updated.Reset();
             Updating = true;
+#if DEBUG
             Console.WriteLine("Started update on board /{0}/", Name);
+#endif
             string board_url = EndpointProvider.GetBoardEndpoint(Name);
 
             if (board_url == "")
@@ -110,33 +114,49 @@ namespace SharpChannel
                     }
                     else
                     {
-                        Threads.First(t => t.ID == id).Update();
+                        Thread thread = Threads.First(t => t.ID == id);
+
+                        if (thread.OP.ModificationTime != rawthread.Value<ulong>("last_modified"))
+                        {
+                            thread.Update();
+                            thread.OP.ModificationTime = rawthread.Value<ulong>("last_modified");
+                        }
                     }
 
                     current_threads.Add(id);
                 }
             }
 
-            Func<Thread, bool> dead = (t => !current_threads.Contains(t.ID));
+            Func<Thread, bool> dead = (t => !current_threads.Contains(t.ID) && t.Alive);
 
             Threads.Where(dead).ToList().ForEach(RemoveThread);
+
+            while (updating_threads.CurrentCount > 0)
+                System.Threading.Thread.Sleep(100);
 
             if (UpdateFinished != null)
                 UpdateFinished(this);
 
             Updating = false;
             _updated.Set();
+#if DEBUG
             Console.WriteLine("Ended update on board /{0}/", Name);
+#endif
         }
 
         public void StartAutoUpdate()
         {
+#if DEBUG
             Console.WriteLine("Starting auto-update...");
+#endif
             _running.Set();
         }
 
         public void StopAutoUpdate()
         {
+#if DEBUG
+            Console.WriteLine("Stopping auto-update...");
+#endif
             _running.Reset();
         }
 
@@ -157,8 +177,10 @@ namespace SharpChannel
                     long epoch_excess = epoch % _sleep;
                     int wait = (int)(_sleep - epoch_excess);
 
+#if DEBUG
                     Console.Write("Next auto-update for board /{0}/ is due in {1} milliseconds({2}): ", Name, wait, DateTime.Now.AddMilliseconds(wait));
                     Console.WriteLine("epoch: {0}, epoch_excess: {1}, wait: {2}", epoch, epoch_excess, wait);
+#endif
 
                     System.Threading.Thread.Sleep(wait);
                     Update();

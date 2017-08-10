@@ -12,10 +12,11 @@ namespace Example
     {
         static void Main(string[] args)
         {
-            Board board = new Board("r9k");
+            EndpointManager.DefaultProvider = new FourEndpointProvider(); // this will make us contact the actual 4chan API endpoint
+            Board board = new Board("b");
 
             board.NewThread += (t) => {
-                Console.WriteLine("New thread on {0}: {1}", t.Parent.Name, t.ID);
+                Console.WriteLine("New thread on {0}: {1}, {2}", t.Parent.Name, t.ID, board.updating_threads.CurrentCount);
             };
 
             board.ThreadDeleted += (t) =>

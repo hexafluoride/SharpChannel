@@ -53,47 +53,58 @@ namespace SharpChannel
 
         public void Update()
         {
-            string thread_url = EndpointProvider.GetThreadEndpoint(Parent.Name, ID);
+            Parent.updating_threads.Wait();
 
-            if (thread_url == "")
-                return;
-
-            string raw = Utilities.Download(thread_url);
-
-            if (raw == "-")
+            Task.Factory.StartNew(delegate
             {
-                Removal();
-                return;
-            }
+                string thread_url = EndpointProvider.GetThreadEndpoint(Parent.Name, ID);
 
-            JObject root = JObject.Parse(raw);
-
-            JArray posts = root.Value<JArray>("posts");
-
-            JsonSerializer serializer = new JsonSerializer();
-            serializer.NullValueHandling = NullValueHandling.Ignore;
-
-            List<int> current_posts = new List<int>();
-
-            foreach (JObject rawpost in posts)
-            {
-                Post post = serializer.Deserialize<Post>(new JTokenReader(rawpost));
-                post.Parent = this;
-
-                current_posts.Add(post.ID);
-
-                if (!Posts.Any(p => p.ID == post.ID))
+                if (thread_url == "")
                 {
-                    Posts.Add(post);
-
-                    if (NewPost != null)
-                        NewPost(post);
+                    Parent.updating_threads.Release();
+                    return;
                 }
-            }
 
-            Func<Post, bool> dead = (p => !current_posts.Contains(p.ID));
+                string raw = Utilities.Download(thread_url);
 
-            Posts.Where(dead).ToList().ForEach(RemovePost);
+                if (raw == "-")
+                {
+                    Parent.updating_threads.Release();
+                    Removal();
+                    return;
+                }
+
+                JObject root = JObject.Parse(raw);
+
+                JArray posts = root.Value<JArray>("posts");
+
+                JsonSerializer serializer = new JsonSerializer();
+                serializer.NullValueHandling = NullValueHandling.Ignore;
+
+                List<int> current_posts = new List<int>();
+
+                foreach (JObject rawpost in posts)
+                {
+                    Post post = serializer.Deserialize<Post>(new JTokenReader(rawpost));
+                    post.Parent = this;
+
+                    current_posts.Add(post.ID);
+
+                    if (!Posts.Any(p => p.ID == post.ID))
+                    {
+                        Posts.Add(post);
+
+                        if (NewPost != null)
+                            NewPost(post);
+                    }
+                }
+
+                Func<Post, bool> dead = (p => !current_posts.Contains(p.ID));
+
+                Posts.Where(dead).ToList().ForEach(RemovePost);
+
+                Parent.updating_threads.Release();
+            });
         }
 
         internal void Removal()

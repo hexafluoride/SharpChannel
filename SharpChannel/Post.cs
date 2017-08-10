@@ -93,6 +93,9 @@ namespace SharpChannel
         [JsonProperty("imagelimit")]
         public int ImageLimit { get; set; }
 
+        [JsonProperty("last_modified")]
+        public ulong ModificationTime { get; set; }
+
         public bool Archived
         {
             get
